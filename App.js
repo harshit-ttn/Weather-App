@@ -9,13 +9,14 @@ import {
   ImageBackground,
   FlatList,
 } from "react-native";
-import * as Location from "expo-location";
 import API_KEY from "@env";
+import * as Location from "expo-location";
+import { FontAwesome5 } from "@expo/vector-icons";
 
 export default function App() {
   const [city, setCity] = useState("");
   const [weather, setWeather] = useState(null);
-  const [forecast, setForecast] = useState([]);
+  const [dailyForecast, setDailyForecast] = useState([]);
   const [loading, setLoading] = useState(false);
   const [bgImage, setBgImage] = useState(require("./assets/default.jpg"));
 
@@ -47,16 +48,16 @@ export default function App() {
     const current = await fetch(
       `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&units=metric&appid=${API_KEY}`
     );
-    const forecastData = await fetch(
-      `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&units=metric&appid=${API_KEY}`
+    const oneCall = await fetch(
+      `https://api.openweathermap.org/data/2.5/onecall?lat=${lat}&lon=${lon}&exclude=minutely,hourly,alerts&units=metric&appid=${API_KEY}`
     );
 
     const currentJson = await current.json();
-    const forecastJson = await forecastData.json();
+    const oneCallJson = await oneCall.json();
 
     if (currentJson.cod === 200) {
       setWeather(currentJson);
-      setForecast(forecastJson.list.slice(0, 5)); // next 5 slots (~15 hours)
+      setDailyForecast(oneCallJson.daily.slice(0, 7)); // 7-day forecast
       updateBackground(currentJson.weather[0].main);
     }
   };
@@ -65,20 +66,14 @@ export default function App() {
     if (!city) return;
     setLoading(true);
     try {
-      const current = await fetch(
-        `https://api.openweathermap.org/data/2.5/weather?q=${city}&units=metric&appid=${API_KEY}`
+      const geo = await fetch(
+        `http://api.openweathermap.org/geo/1.0/direct?q=${city}&limit=1&appid=${API_KEY}`
       );
-      const forecastData = await fetch(
-        `https://api.openweathermap.org/data/2.5/forecast?q=${city}&units=metric&appid=${API_KEY}`
-      );
+      const geoJson = await geo.json();
 
-      const currentJson = await current.json();
-      const forecastJson = await forecastData.json();
-
-      if (currentJson.cod === 200) {
-        setWeather(currentJson);
-        setForecast(forecastJson.list.slice(0, 5));
-        updateBackground(currentJson.weather[0].main);
+      if (geoJson.length > 0) {
+        const { lat, lon } = geoJson[0];
+        await fetchWeatherByCoords(lat, lon);
       } else {
         alert("City not found!");
       }
@@ -105,6 +100,28 @@ export default function App() {
     }
   };
 
+  const getWeatherIcon = (condition) => {
+    switch (condition) {
+      case "Clear":
+        return "sun";
+      case "Clouds":
+        return "cloud";
+      case "Rain":
+        return "cloud-rain";
+      case "Snow":
+        return "snowflake";
+      case "Thunderstorm":
+        return "bolt";
+      case "Drizzle":
+        return "cloud-showers-heavy";
+      case "Mist":
+      case "Fog":
+        return "smog";
+      default:
+        return "cloud";
+    }
+  };
+
   return (
     <ImageBackground source={bgImage} style={styles.bg}>
       <View style={styles.container}>
@@ -124,25 +141,40 @@ export default function App() {
             <Text style={styles.city}>
               {weather.name}, {weather.sys.country}
             </Text>
+            <FontAwesome5
+              name={getWeatherIcon(weather.weather[0].main)}
+              size={50}
+              color="#333"
+              style={{ marginVertical: 10 }}
+            />
             <Text style={styles.temp}>{Math.round(weather.main.temp)}°C</Text>
-            <Text>Condition: {weather.weather[0].description}</Text>
+            <Text>{weather.weather[0].description}</Text>
             <Text>Humidity: {weather.main.humidity}%</Text>
             <Text>Wind: {weather.wind.speed} m/s</Text>
           </View>
         )}
 
-        {forecast.length > 0 && (
+        {dailyForecast.length > 0 && (
           <View style={styles.forecastContainer}>
-            <Text style={styles.subtitle}>⏳ Forecast</Text>
+            <Text style={styles.subtitle}>📅 7-Day Forecast</Text>
             <FlatList
               horizontal
-              data={forecast}
+              data={dailyForecast}
               keyExtractor={(item, index) => index.toString()}
               renderItem={({ item }) => (
                 <View style={styles.forecastItem}>
-                  <Text>{new Date(item.dt_txt).getHours()}:00</Text>
-                  <Text>{Math.round(item.main.temp)}°C</Text>
-                  <Text>{item.weather[0].main}</Text>
+                  <Text>
+                    {new Date(item.dt * 1000).toLocaleDateString("en-US", {
+                      weekday: "short",
+                    })}
+                  </Text>
+                  <FontAwesome5
+                    name={getWeatherIcon(item.weather[0].main)}
+                    size={24}
+                    color="#333"
+                    style={{ marginVertical: 5 }}
+                  />
+                  <Text>{Math.round(item.temp.day)}°C</Text>
                 </View>
               )}
             />
@@ -194,7 +226,6 @@ const styles = StyleSheet.create({
   temp: {
     fontSize: 40,
     fontWeight: "bold",
-    marginVertical: 10,
   },
   forecastContainer: {
     marginTop: 20,
@@ -212,5 +243,6 @@ const styles = StyleSheet.create({
     marginRight: 10,
     borderRadius: 8,
     alignItems: "center",
+    width: 80,
   },
 });
